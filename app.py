@@ -2,62 +2,40 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 
-# Check for available Excel engines
-try:
-    from openpyxl import Workbook
-    OPENPYXL_AVAILABLE = True
-except ImportError:
-    OPENPYXL_AVAILABLE = False
-
-try:
-    import xlsxwriter
-    XLSXWRITER_AVAILABLE = True
-except ImportError:
-    XLSXWRITER_AVAILABLE = False
-
 def transpose_row(row, headers):
     """Transpose a single row into multiple rows"""
     transposed_rows = []
     
     # Fixed values that stay the same for all transposed rows
-    fixed_values = row[:11] if len(row) >= 11 else row + [None] * (11 - len(row))
+    fixed_columns = headers[:11]  # journal to Adjusted activity
+    fixed_values = row[:11]
     
-    # Activity columns start from index 11 onwards
-    activity_headers = headers[11:] if len(headers) > 11 else []
-    activity_values = row[11:] if len(row) > 11 else []
+    # Activity columns start from index 11 (Balance) onwards
+    activity_headers = headers[11:]
+    activity_values = row[11:]
     
-    for activity_header, value in zip(activity_headers, activity_values):
-        # Skip if value is missing
-        if pd.isna(value) or (isinstance(value, str) and value.strip() in ['-', '']):
+    for i, (activity_header, value) in enumerate(zip(activity_headers, activity_values)):
+        # Skip if value is missing (represented as '-', empty, or NaN)
+        if (isinstance(value, str) and value.strip() in ['-', '']) or pd.isna(value):
             continue
             
-        # Skip if value is 0
-        try:
-            if float(value) == 0:
-                continue
-        except (ValueError, TypeError):
+        # Skip if value is 0 or '0'
+        if value == 0 or (isinstance(value, str) and value.strip() == '0'):
             continue
             
-        # Create new row
+        # Create new row: fixed values + activity header + value
         new_row = fixed_values + [activity_header, value]
         transposed_rows.append(new_row)
     
     return transposed_rows
 
 def to_excel(df):
-    """Convert dataframe to Excel format with fallback engines"""
+    """Convert dataframe to Excel format"""
     output = BytesIO()
-    
-    if OPENPYXL_AVAILABLE:
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Transformed_Data')
-    elif XLSXWRITER_AVAILABLE:
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df.to_excel(writer, index=False, sheet_name='Transformed_Data')
-    else:
-        raise ImportError("No Excel writer available. Install openpyxl or xlsxwriter.")
-    
-    return output.getvalue()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Transformed_Data')
+    processed_data = output.getvalue()
+    return processed_data
 
 def main():
     st.set_page_config(
@@ -70,38 +48,19 @@ def main():
     st.write("Upload your file to transpose and clean financial data")
     
     # File upload
-    uploaded_file = st.file_uploader("Choose a file", type=['csv', 'txt'])
+    uploaded_file = st.file_uploader("Choose a file", type=['csv', 'txt', 'xlsx'])
     
     if uploaded_file is not None:
         try:
-            # Read file - only CSV/TXT for now to avoid Excel dependency issues
-            if uploaded_file.name.endswith(('.xlsx', '.xls')):
-                if not OPENPYXL_AVAILABLE and not XLSXWRITER_AVAILABLE:
-                    st.error("❌ Cannot read Excel files - no Excel library installed")
-                    st.info("Please upload CSV or TXT files instead, or check requirements.txt")
-                    return
-                # Try to read Excel if libraries available
-                try:
-                    df = pd.read_excel(uploaded_file)
-                except Exception as e:
-                    st.error(f"Cannot read Excel file: {e}")
-                    return
+            # Read file based on extension
+            if uploaded_file.name.endswith('.xlsx'):
+                df = pd.read_excel(uploaded_file)
             else:
-                # Try different delimiters for CSV/TXT
-                file_content = uploaded_file.read().decode('utf-8')
-                uploaded_file.seek(0)  # Reset file pointer
-                
-                for delimiter in ['\t', ',', ';']:
-                    try:
-                        uploaded_file.seek(0)
-                        df = pd.read_csv(uploaded_file, delimiter=delimiter)
-                        st.success(f"✅ File read successfully with '{delimiter}' delimiter")
-                        break
-                    except Exception:
-                        continue
-                else:
-                    st.error("❌ Could not read the file. Please check the format.")
-                    return
+                # Try different delimiters
+                try:
+                    df = pd.read_csv(uploaded_file, delimiter='\t')
+                except:
+                    df = pd.read_csv(uploaded_file, delimiter=',')
             
             st.subheader("📊 Original Data")
             st.dataframe(df, use_container_width=True)
@@ -124,6 +83,8 @@ def main():
                 # Remove rows where Activity is "Balance"
                 initial_count = len(new_df)
                 new_df = new_df[new_df['Activity'] != 'Balance']
+                
+                # Also remove rows where Activity contains "Balance" (case insensitive)
                 new_df = new_df[~new_df['Activity'].astype(str).str.contains('Balance', case=False, na=False)]
                 
                 # Convert Amount to numeric and remove rows with 0
@@ -132,17 +93,21 @@ def main():
                 new_df = new_df.dropna(subset=['Amount'])
                 
                 filtered_count = len(new_df)
+                removed_count = initial_count - filtered_count
                 
                 st.subheader("✅ Transformed Data")
                 st.dataframe(new_df, use_container_width=True)
                 
+                # Show removal statistics
                 st.info(f"**Transformation Statistics:**\n"
                        f"- Original transposed rows: {initial_count}\n"
+                       f"- Removed rows (Balance/0 values): {removed_count}\n"
                        f"- Final valid rows: {filtered_count}")
                 
-                # Download options
+                # Create two columns for download buttons
                 col1, col2 = st.columns(2)
                 
+                # CSV Download button
                 with col1:
                     csv = new_df.to_csv(index=False)
                     st.download_button(
@@ -153,23 +118,16 @@ def main():
                         use_container_width=True
                     )
                 
+                # Excel Download button
                 with col2:
-                    try:
-                        excel_data = to_excel(new_df)
-                        st.download_button(
-                            label="📊 Download as Excel",
-                            data=excel_data,
-                            file_name="transformed_data.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            use_container_width=True
-                        )
-                    except Exception as e:
-                        st.button(
-                            "📊 Excel Export Unavailable",
-                            disabled=True,
-                            help=f"Excel export disabled: {str(e)}",
-                            use_container_width=True
-                        )
+                    excel_data = to_excel(new_df)
+                    st.download_button(
+                        label="📊 Download as Excel",
+                        data=excel_data,
+                        file_name="transformed_data.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
                 
                 st.success(f"🎉 Transformation complete! Created {len(new_df)} valid rows.")
                 
@@ -178,13 +136,14 @@ def main():
                 
         except Exception as e:
             st.error(f"Error processing file: {str(e)}")
+            st.info("💡 Tip: Make sure your file has the correct format. For CSV files, use tab or comma delimiter.")
 
     else:
         st.markdown("""
         ### 📋 How to use:
-        1. **Upload** your CSV or TXT file (Excel support coming soon)
-        2. **View** the original and transformed data  
-        3. **Download** the cleaned data in CSV format
+        1. **Upload** your CSV, TXT, or Excel file
+        2. **View** the original and transformed data
+        3. **Download** the cleaned data in CSV or Excel format
         
         ### 🔄 What this app does:
         - Transposes activity columns into separate rows
