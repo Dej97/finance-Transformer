@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import io
 from io import BytesIO
 
 def transpose_row(row, headers):
@@ -39,8 +38,14 @@ def to_excel(df):
     return processed_data
 
 def main():
-    st.title("Data Transformer")
-    st.write("Upload your file to transpose the data")
+    st.set_page_config(
+        page_title="Data Transformer",
+        page_icon="🔄",
+        layout="wide"
+    )
+    
+    st.title("🔄 Data Transformer")
+    st.write("Upload your file to transpose and clean financial data")
     
     # File upload
     uploaded_file = st.file_uploader("Choose a file", type=['csv', 'txt', 'xlsx'])
@@ -51,10 +56,14 @@ def main():
             if uploaded_file.name.endswith('.xlsx'):
                 df = pd.read_excel(uploaded_file)
             else:
-                df = pd.read_csv(uploaded_file, delimiter='\t')
+                # Try different delimiters
+                try:
+                    df = pd.read_csv(uploaded_file, delimiter='\t')
+                except:
+                    df = pd.read_csv(uploaded_file, delimiter=',')
             
-            st.write("Original Data:")
-            st.dataframe(df)
+            st.subheader("📊 Original Data")
+            st.dataframe(df, use_container_width=True)
             
             # Get headers
             headers = df.columns.tolist()
@@ -86,14 +95,14 @@ def main():
                 filtered_count = len(new_df)
                 removed_count = initial_count - filtered_count
                 
-                st.write("Transformed Data:")
-                st.dataframe(new_df)
+                st.subheader("✅ Transformed Data")
+                st.dataframe(new_df, use_container_width=True)
                 
                 # Show removal statistics
-                st.info(f"📊 **Transformation Stats:**\n"
+                st.info(f"**Transformation Statistics:**\n"
                        f"- Original transposed rows: {initial_count}\n"
                        f"- Removed rows (Balance/0 values): {removed_count}\n"
-                       f"- Final rows: {filtered_count}")
+                       f"- Final valid rows: {filtered_count}")
                 
                 # Create two columns for download buttons
                 col1, col2 = st.columns(2)
@@ -120,15 +129,28 @@ def main():
                         use_container_width=True
                     )
                 
-                # Show some stats
-                st.success(f"✅ Transformation complete! Created {len(new_df)} valid rows.")
+                st.success(f"🎉 Transformation complete! Created {len(new_df)} valid rows.")
                 
             else:
                 st.warning("No valid data found to transform")
                 
         except Exception as e:
             st.error(f"Error processing file: {str(e)}")
-            st.info("💡 Tip: Make sure your file has the correct format with tab delimiter for CSV/TXT files.")
+            st.info("💡 Tip: Make sure your file has the correct format. For CSV files, use tab or comma delimiter.")
+
+    else:
+        st.markdown("""
+        ### 📋 How to use:
+        1. **Upload** your CSV, TXT, or Excel file
+        2. **View** the original and transformed data
+        3. **Download** the cleaned data in CSV or Excel format
+        
+        ### 🔄 What this app does:
+        - Transposes activity columns into separate rows
+        - Removes rows with 'Balance' in Activity column
+        - Removes rows with 0 values in Amount column
+        - Skips missing values (represented as '-')
+        """)
 
 if __name__ == "__main__":
     main()
