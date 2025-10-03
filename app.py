@@ -51,11 +51,18 @@ def main():
     
     if uploaded_file is not None:
         try:
-            # Read file based on extension
+            # Handle Excel files
             if uploaded_file.name.endswith(('.xlsx', '.xls')):
-                df = pd.read_excel(uploaded_file)
+                try:
+                    df = pd.read_excel(uploaded_file, engine="openpyxl")
+                except ImportError:
+                    st.error("❌ Missing dependency: openpyxl. Please add it to requirements.txt")
+                    return
+                except Exception as e:
+                    st.error(f"❌ Could not read Excel file: {str(e)}")
+                    return
             else:
-                # Try different delimiters for CSV/TXT
+                # Handle CSV/TXT with multiple delimiters
                 for delimiter in ['\t', ',', ';']:
                     try:
                         uploaded_file.seek(0)
@@ -75,7 +82,6 @@ def main():
             
             # Process data
             all_transposed_rows = []
-            
             for _, row in df.iterrows():
                 transposed_rows = transpose_row(row.tolist(), headers)
                 all_transposed_rows.extend(transposed_rows)
@@ -123,7 +129,7 @@ def main():
                         use_container_width=True
                     )
                 
-                # Excel Download button (now using xlsxwriter)
+                # Excel Download button
                 with col2:
                     excel_data = to_excel(new_df)
                     st.download_button(
@@ -137,24 +143,24 @@ def main():
                 st.success(f"🎉 Transformation complete! Created {len(new_df)} valid rows.")
                 
             else:
-                st.warning("No valid data found to transform")
+                st.warning("⚠️ No valid data found to transform")
                 
         except Exception as e:
-            st.error(f"Error processing file: {str(e)}")
-            st.info("💡 Tip: Make sure your file has the correct format. For CSV files, use tab or comma delimiter.")
+            st.error(f"Unexpected error: {str(e)}")
+            st.info("💡 Tip: Make sure your file has the correct format. For CSV files, use tab, comma, or semicolon delimiter.")
 
     else:
         st.markdown("""
         ### 📋 How to use:
-        1. **Upload** your CSV, TXT, or Excel file
-        2. **View** the original and transformed data
-        3. **Download** the cleaned data in CSV or Excel format
-        
+        1. **Upload** your CSV, TXT, or Excel file  
+        2. **View** the original and transformed data  
+        3. **Download** the cleaned data in CSV or Excel format  
+
         ### 🔄 What this app does:
-        - Transposes activity columns into separate rows
-        - Removes rows with 'Balance' in Activity column
-        - Removes rows with 0 values in Amount column
-        - Skips missing values (represented as '-')
+        - Transposes activity columns into separate rows  
+        - Removes rows with 'Balance' in Activity column  
+        - Removes rows with 0 values in Amount column  
+        - Skips missing values (represented as '-')  
         """)
 
 if __name__ == "__main__":
