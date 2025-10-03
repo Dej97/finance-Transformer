@@ -2,28 +2,20 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 
-# Add this check for openpyxl
-try:
-    import openpyxl
-    OPENPYXL_AVAILABLE = True
-except ImportError:
-    OPENPYXL_AVAILABLE = False
-
 def transpose_row(row, headers):
     """Transpose a single row into multiple rows"""
     transposed_rows = []
     
     # Fixed values that stay the same for all transposed rows
-    fixed_columns = headers[:11]  # journal to Adjusted activity
-    fixed_values = row[:11]
+    fixed_values = row[:11] if len(row) >= 11 else row + [None] * (11 - len(row))
     
-    # Activity columns start from index 11 (Balance) onwards
-    activity_headers = headers[11:]
-    activity_values = row[11:]
+    # Activity columns start from index 11 onwards
+    activity_headers = headers[11:] if len(headers) > 11 else []
+    activity_values = row[11:] if len(row) > 11 else []
     
-    for i, (activity_header, value) in enumerate(zip(activity_headers, activity_values)):
+    for activity_header, value in zip(activity_headers, activity_values):
         # Skip if value is missing (represented as '-', empty, or NaN)
-        if (isinstance(value, str) and value.strip() in ['-', '']) or pd.isna(value):
+        if pd.isna(value) or (isinstance(value, str) and value.strip() in ['-', '']):
             continue
             
         # Skip if value is 0 or '0'
@@ -37,12 +29,9 @@ def transpose_row(row, headers):
     return transposed_rows
 
 def to_excel(df):
-    """Convert dataframe to Excel format"""
-    if not OPENPYXL_AVAILABLE:
-        raise ImportError("openpyxl is not installed")
-    
+    """Convert dataframe to Excel format using xlsxwriter"""
     output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Transformed_Data')
     processed_data = output.getvalue()
     return processed_data
@@ -57,27 +46,26 @@ def main():
     st.title("🔄 Data Transformer")
     st.write("Upload your file to transpose and clean financial data")
     
-    if not OPENPYXL_AVAILABLE:
-        st.warning("⚠️ Excel support disabled - openpyxl not installed")
-    
     # File upload
     uploaded_file = st.file_uploader("Choose a file", type=['csv', 'txt', 'xlsx'])
     
     if uploaded_file is not None:
         try:
             # Read file based on extension
-            if uploaded_file.name.endswith('.xlsx'):
-                if not OPENPYXL_AVAILABLE:
-                    st.error("❌ Cannot read Excel files - openpyxl not installed")
-                    st.info("Please upload CSV or TXT files instead")
-                    return
+            if uploaded_file.name.endswith(('.xlsx', '.xls')):
                 df = pd.read_excel(uploaded_file)
             else:
-                # Try different delimiters
-                try:
-                    df = pd.read_csv(uploaded_file, delimiter='\t')
-                except:
-                    df = pd.read_csv(uploaded_file, delimiter=',')
+                # Try different delimiters for CSV/TXT
+                for delimiter in ['\t', ',', ';']:
+                    try:
+                        uploaded_file.seek(0)
+                        df = pd.read_csv(uploaded_file, delimiter=delimiter)
+                        break
+                    except Exception:
+                        continue
+                else:
+                    st.error("❌ Could not read the file. Please check the format.")
+                    return
             
             st.subheader("📊 Original Data")
             st.dataframe(df, use_container_width=True)
@@ -135,32 +123,16 @@ def main():
                         use_container_width=True
                     )
                 
-                # Excel Download button
+                # Excel Download button (now using xlsxwriter)
                 with col2:
-                    if OPENPYXL_AVAILABLE:
-                        try:
-                            excel_data = to_excel(new_df)
-                            st.download_button(
-                                label="📊 Download as Excel",
-                                data=excel_data,
-                                file_name="transformed_data.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                use_container_width=True
-                            )
-                        except Exception as e:
-                            st.button(
-                                "📊 Excel Error",
-                                disabled=True,
-                                help=f"Excel export failed: {str(e)}",
-                                use_container_width=True
-                            )
-                    else:
-                        st.button(
-                            "📊 Excel Disabled",
-                            disabled=True,
-                            help="openpyxl not installed - cannot export Excel",
-                            use_container_width=True
-                        )
+                    excel_data = to_excel(new_df)
+                    st.download_button(
+                        label="📊 Download as Excel",
+                        data=excel_data,
+                        file_name="transformed_data.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
                 
                 st.success(f"🎉 Transformation complete! Created {len(new_df)} valid rows.")
                 
