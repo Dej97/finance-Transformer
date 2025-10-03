@@ -20,6 +20,10 @@ def transpose_row(row, headers):
         if (isinstance(value, str) and value.strip() in ['-', '']) or pd.isna(value):
             continue
             
+        # Skip if value is 0 or '0'
+        if value == 0 or (isinstance(value, str) and value.strip() == '0'):
+            continue
+            
         # Create new row: fixed values + activity header + value
         new_row = fixed_values + [activity_header, value]
         transposed_rows.append(new_row)
@@ -67,8 +71,29 @@ def main():
                 new_headers = headers[:11] + ['Activity', 'Amount']
                 new_df = pd.DataFrame(all_transposed_rows, columns=new_headers)
                 
+                # Remove rows where Activity is "Balance"
+                initial_count = len(new_df)
+                new_df = new_df[new_df['Activity'] != 'Balance']
+                
+                # Also remove rows where Activity contains "Balance" (case insensitive)
+                new_df = new_df[~new_df['Activity'].astype(str).str.contains('Balance', case=False, na=False)]
+                
+                # Convert Amount to numeric and remove rows with 0
+                new_df['Amount'] = pd.to_numeric(new_df['Amount'], errors='coerce')
+                new_df = new_df[new_df['Amount'] != 0]
+                new_df = new_df.dropna(subset=['Amount'])
+                
+                filtered_count = len(new_df)
+                removed_count = initial_count - filtered_count
+                
                 st.write("Transformed Data:")
                 st.dataframe(new_df)
+                
+                # Show removal statistics
+                st.info(f"📊 **Transformation Stats:**\n"
+                       f"- Original transposed rows: {initial_count}\n"
+                       f"- Removed rows (Balance/0 values): {removed_count}\n"
+                       f"- Final rows: {filtered_count}")
                 
                 # Create two columns for download buttons
                 col1, col2 = st.columns(2)
@@ -96,7 +121,7 @@ def main():
                     )
                 
                 # Show some stats
-                st.success(f"✅ Transformation complete! Created {len(new_df)} rows from original data.")
+                st.success(f"✅ Transformation complete! Created {len(new_df)} valid rows.")
                 
             else:
                 st.warning("No valid data found to transform")
